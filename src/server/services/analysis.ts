@@ -124,6 +124,15 @@ export async function runDiagnosticAnalysis(ctx: OrgContext, diagnosticId: strin
     // Предыдущие открытые (не взятые в план) проблемы этой диагностики заменяются новым анализом.
     await ctx.db.problem.updateMany({ where: { diagnosticId, status: "OPEN" }, data: { status: "DISMISSED" } });
 
+    // Новый замер замещает открытые проблемы по тем же критериям из более ранних диагностик
+    const codes = out.problems.map((p) => p.criterionCode);
+    if (codes.length) {
+      await ctx.db.problem.updateMany({
+        where: { diagnosticId: { not: diagnosticId }, criterionCode: { in: codes }, status: "OPEN", diagnostic: { createdAt: { lt: diagnostic.createdAt } } },
+        data: { status: "DISMISSED" },
+      });
+    }
+
     for (const p of out.problems) {
       const existingInPlan = await ctx.db.problem.findFirst({
         where: { diagnosticId, criterionCode: p.criterionCode, status: { in: ["IN_PLAN", "MONITORING"] } },

@@ -33,17 +33,21 @@ export function aggregateGroups(
 }
 
 /**
- * Защита от вычитания: если скрыта ровно одна группа, её значение можно
- * восстановить из общего среднего и остальных групп. В этом случае
- * скрывается ещё и самая маленькая из открытых групп.
+ * Защита от вычитания: зная общий результат и открытые группы, можно
+ * вычислить совокупный результат скрытых групп. Поэтому скрытые группы в
+ * сумме должны содержать не меньше K ответов; если меньше — скрывается
+ * самая маленькая из открытых групп, пока условие не выполнится.
  */
 export function protectAgainstDifferencing(aggs: GroupAggregate[], k = DEFAULT_MIN_GROUP_SIZE): GroupAggregate[] {
-  const hidden = aggs.filter((a) => a.hidden && a.n > 0);
-  if (hidden.length !== 1) return aggs;
-  const visible = aggs.filter((a) => !a.hidden).sort((a, b) => a.n - b.n);
-  if (visible.length === 0) return aggs;
-  const victim = visible[0];
-  return aggs.map((a) => (a === victim ? { ...a, mean: null, hidden: true } : a));
+  const out = aggs.map((a) => ({ ...a }));
+  const hiddenN = () => out.filter((a) => a.hidden).reduce((s, a) => s + a.n, 0);
+  while (hiddenN() > 0 && hiddenN() < k) {
+    const visible = out.filter((a) => !a.hidden).sort((a, b) => a.n - b.n);
+    if (visible.length === 0) break;
+    visible[0].hidden = true;
+    visible[0].mean = null;
+  }
+  return out;
 }
 
 const PII_PATTERNS: [RegExp, string][] = [

@@ -105,3 +105,22 @@ export async function usersWithPermission(orgId: string, permission: string): Pr
   const now = new Date();
   return ms.filter((m) => !m.expiresAt || m.expiresAt > now).map((m) => m.userId);
 }
+
+// ---------------------------------------------------------------------------
+// Уведомления в приложении
+// ---------------------------------------------------------------------------
+
+export async function listNotifications(userId: string, orgId: string, take = 50) {
+  return prisma.notification.findMany({ where: { userId, organizationId: orgId }, orderBy: { createdAt: "desc" }, take });
+}
+
+export async function unreadCount(userId: string, orgId: string) {
+  return prisma.notification.count({ where: { userId, organizationId: orgId, readAt: null } });
+}
+
+export async function markRead(userId: string, orgId: string, id?: string) {
+  await prisma.notification.updateMany({
+    where: { userId, organizationId: orgId, readAt: null, ...(id ? { id } : {}) },
+    data: { readAt: new Date() },
+  });
+}

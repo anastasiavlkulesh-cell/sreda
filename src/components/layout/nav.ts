@@ -40,9 +40,9 @@ export const NAV: NavGroup[] = [
   {
     title: "Люди и бизнес",
     items: [
-      { href: "/team", label: "Команда", icon: "Users", anyOf: ["team.view"], ready: false },
+      { href: "/team", label: "Команда", icon: "Users", anyOf: ["team.view"], ready: true },
       { href: "/metrics", label: "Бизнес-показатели", icon: "TrendingUp", anyOf: ["metrics.view"], ready: true },
-      { href: "/reports", label: "Отчёты", icon: "FileText", anyOf: ["reports.view"], ready: false },
+      { href: "/reports", label: "Отчёты", icon: "FileText", anyOf: ["reports.view"], ready: true },
     ],
   },
   {

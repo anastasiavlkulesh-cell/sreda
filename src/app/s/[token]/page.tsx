@@ -40,7 +40,7 @@ export default async function PublicSurveyPage({ params, searchParams }: { param
             type: q.type,
             text: q.text,
             isRequired: q.isRequired,
-            group: survey.sourceType === "CUSTOMER" ? null : (dimName(q.criterion?.dimension.key) ?? "Открытые вопросы"),
+            group: survey.sourceType === "CUSTOMER" || survey.kind === "TEAM_PULSE" ? null : (dimName(q.criterion?.dimension.key) ?? "Открытые вопросы"),
           }))}
         />
       )}

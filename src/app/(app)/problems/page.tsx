@@ -19,7 +19,13 @@ export default async function ProblemsPage({ searchParams }: { searchParams: Pro
   const ctx = await requireOrgContext("problems.view");
   const sp = await searchParams;
   const priority = PRIORITIES.includes(sp.priority as PriorityCategory) ? (sp.priority as PriorityCategory) : undefined;
-  const problems = await listProblems(ctx, { priority, diagnosticId: sp.diagnostic });
+  const analyzed = await ctx.db.diagnostic.findMany({
+    where: { archivedAt: null, analyses: { some: { kind: "DIAGNOSTIC", status: "COMPLETED" } } },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, title: true },
+  });
+  const diagnosticId = sp.diagnostic === "all" ? undefined : (analyzed.find((d) => d.id === sp.diagnostic)?.id ?? analyzed[0]?.id);
+  const problems = await listProblems(ctx, { priority, diagnosticId });
   const dimName = (k: string) => DIMENSIONS.find((d) => d.key === k)!.shortName;
   const q = (p?: string) => {
     const params = new URLSearchParams();
@@ -35,6 +41,18 @@ export default async function ProblemsPage({ searchParams }: { searchParams: Pro
         badge={ctx.org.isDemo ? <DemoBadge /> : undefined}
         description="Каждый вывод имеет статус: подтверждено, частично подтверждено или гипотеза. Приоритет — по пяти параметрам, реализуемость оценена отдельно."
       />
+      {analyzed.length > 1 && (
+        <div className="flex flex-wrap gap-2">
+          {[...analyzed.map((d) => ({ id: d.id, title: d.title })), { id: "all", title: "Все диагностики" }].map((d) => {
+            const isActive = d.id === "all" ? sp.diagnostic === "all" : d.id === diagnosticId && sp.diagnostic !== "all";
+            return (
+              <Link key={d.id} href={`/problems?diagnostic=${d.id}`} className={cn("rounded-xl border px-3 py-1.5 text-sm", isActive ? "border-lavender-500 bg-lavender-50 font-semibold text-lavender-700" : "border-line bg-white text-muted hover:text-ink")}>
+                {d.title}
+              </Link>
+            );
+          })}
+        </div>
+      )}
       <div className="flex flex-wrap gap-2">
         {[undefined, ...PRIORITIES].map((p) => (
           <Link key={p ?? "all"} href={q(p)} className={cn("rounded-full border px-3 py-1 text-sm font-semibold", priority === p ? "border-navy-900 bg-navy-900 text-white" : "border-line bg-white text-muted hover:text-ink")}>

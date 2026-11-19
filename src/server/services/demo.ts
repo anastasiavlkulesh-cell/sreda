@@ -14,6 +14,7 @@ import { startTask, toggleChecklistItem, addEvidence, submitForReview, reviewTas
 import { hashPassword } from "../auth/password";
 import { newToken } from "../crypto";
 import type { OrgContext } from "../context-core";
+import { createPulseSurvey, closePulseSurvey } from "./team";
 
 /**
  * Демо-компания. Все данные синтетические, компания помечена isDemo и в
@@ -300,6 +301,7 @@ export async function createDemoOrganization(userId: string) {
     await addEvidence(mctx, tasks2[1].id, { kind: "TEXT", description: "Демо: все пункты чек-листа выполнены, итоги зафиксированы в еженедельном отчёте управляющего." });
     await submitForReview(mctx, tasks2[1].id);
   }
+  await createDemoPulse(ctx, deps.map((d) => d.id));
   if (tasks2[2]) {
     await updateTask(ctx, tasks2[2].id, { dueDate: new Date(now + 1 * day) });
     await db.task.update({ where: { id: tasks2[2].id }, data: { dueDate: new Date(now - 2 * day) } });
@@ -330,4 +332,40 @@ async function completeTask(owner: OrgContext, manager: OrgContext, taskId: stri
   await addEvidence(manager, taskId, { kind: "TEXT", description: "Демо: мероприятия выполнены, результаты зафиксированы в отчёте управляющего за месяц." });
   await submitForReview(manager, taskId);
   await reviewTask(owner, taskId, "accept", "Демо: принято по отчёту управляющего.");
+}
+
+async function createDemoPulse(ctx: OrgContext, depIds: string[]) {
+  const random = rng(99);
+  const survey = await createPulseSurvey(ctx, "Пульс команды — октябрь");
+  const questions = await ctx.db.survey.findFirstOrThrow({ where: { id: survey.id }, include: { questions: true } });
+  const target: Record<string, number> = { engagement: 3.4, satisfaction: 3.1, leader: 2.7, culture: 3.6, workload: 2.2, stay: 3.0 };
+  const comments = [
+    "Добавить человека в утреннюю смену",
+    "Чаще обсуждать, что получается, а не только ошибки",
+    "Понятный график на месяц вперёд",
+    "Нормальное обучение для новичков",
+    "Комната отдыха для персонала",
+  ];
+  // Бариста — 7 ответов, кухня — 3, зал — 4: группы меньше 5 будут скрыты
+  const plan = [...Array(7).fill(depIds[0]), ...Array(3).fill(depIds[1]), ...Array(4).fill(depIds[2])];
+  for (const [i, dep] of plan.entries()) {
+    await ctx.db.surveyResponse.create({
+      data: {
+        organizationId: ctx.org.id,
+        surveyId: survey.id,
+        departmentId: dep,
+        submittedAt: new Date(Date.UTC(2026, 9, 10 + (i % 5))),
+        answers: {
+          create: questions.questions.flatMap((q): { questionId: string; value?: number; text?: string }[] =>
+            q.type === "SCALE"
+              ? [{ questionId: q.id, value: Math.max(1, Math.min(5, Math.round(target[q.metricKey!] + (random() + random() - 1) * 1.4))) }]
+              : i % 3 === 0
+                ? [{ questionId: q.id, text: comments[(i / 3) % comments.length] }]
+                : [],
+          ),
+        },
+      },
+    });
+  }
+  await closePulseSurvey(ctx, survey.id);
 }

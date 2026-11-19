@@ -85,6 +85,15 @@ describe("анонимность", () => {
     expect(safe.filter((a) => a.hidden).length).toBe(2);
     expect(safe.find((a) => a.group === "B")!.hidden).toBe(true);
   });
+  it("две малые скрытые группы (2+2) не вычисляются вычитанием", () => {
+    const aggs = aggregateGroups(new Map([["A", [1, 1]], ["B", [2, 2]], ["C", [4, 4, 4, 4, 4, 4]], ["D", [5, 5, 5, 5, 5, 5, 5]]]), 5);
+    const safe = protectAgainstDifferencing(aggs, 5);
+    const hiddenN = safe.filter((a) => a.hidden).reduce((s, a) => s + a.n, 0);
+    expect(hiddenN).toBeGreaterThanOrEqual(5);
+    expect(safe.find((a) => a.group === "C")!.hidden).toBe(true);
+    expect(safe.find((a) => a.group === "D")!.hidden).toBe(false);
+  });
+
   it("комментарии — только при группе ≥ K и без контактов", () => {
     expect(disclosableComments(["a", "b"], 3, 5)).toBeNull();
     const out = disclosableComments(["Пишите мне на ivan@mail.ru", "Звоните +7 912 345-67-89", "ок", "ок2", "ок3"], 7, 5)!;
