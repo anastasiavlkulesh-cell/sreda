@@ -33,8 +33,8 @@ export const NAV: NavGroup[] = [
   {
     title: "Улучшения",
     items: [
-      { href: "/plan", label: "План улучшений", icon: "ClipboardList", anyOf: ["plan.view"], ready: false },
-      { href: "/tasks", label: "Задачи", icon: "ListChecks", anyOf: ["tasks.work", "tasks.view_all"], ready: false },
+      { href: "/plan", label: "План улучшений", icon: "ClipboardList", anyOf: ["plan.view"], ready: true },
+      { href: "/tasks", label: "Задачи", icon: "ListChecks", anyOf: ["tasks.work", "tasks.view_all"], ready: true },
     ],
   },
   {

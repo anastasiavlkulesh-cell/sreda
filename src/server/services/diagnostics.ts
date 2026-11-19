@@ -201,6 +201,9 @@ export async function completeCollection(ctx: OrgContext, id: string) {
   await ctx.db.survey.updateMany({ where: { diagnosticId: id, status: "OPEN" }, data: { status: "CLOSED" } });
   const res = await calculateAndStoreAssessment(ctx.db, ctx.org.id, id);
   await ctx.db.diagnostic.update({ where: { id }, data: { status: "COMPLETED", completedAt: new Date() } });
+  // Повторный замер: оценка результата ранее выполненных задач
+  const { evaluateTaskOutcomes } = await import("./tasks");
+  await evaluateTaskOutcomes(ctx, id);
   await audit({ orgId: ctx.org.id, userId: ctx.user.id }, "diagnostic.complete", "Diagnostic", id, {
     ssi: res.result.ssi,
     confidence: res.result.confidence,

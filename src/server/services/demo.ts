@@ -9,6 +9,11 @@ import type { MetricKey } from "@/domain/metrics";
 import { loadOrgContext } from "../context-core";
 import { runDiagnosticAnalysis } from "./analysis";
 import { prisma } from "../db/client";
+import { generatePlan, submitPlanForApproval, approvePlan } from "./plans";
+import { startTask, toggleChecklistItem, addEvidence, submitForReview, reviewTask, evaluateTaskOutcomes, markOverdueTasks, updateTask } from "./tasks";
+import { hashPassword } from "../auth/password";
+import { newToken } from "../crypto";
+import type { OrgContext } from "../context-core";
 
 /**
  * Демо-компания. Все данные синтетические, компания помечена isDemo и в
@@ -246,7 +251,13 @@ export async function createDemoOrganization(userId: string) {
   const criteria = await loadCriteria(org.id);
   const day = 86400_000;
   const now = Date.now();
-  await createDiagnosticWithResponses(db, org.id, userId, criteria, {
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
+  const ctx = (await loadOrgContext({ id: user.id, email: user.email, name: user.name, isPlatformStaff: false }, org.id))!;
+  const manager = await createDemoMember(org.id, "Управляющий (демо) Марина Ершова", "LOCATION_MANAGER", [loc1.id]);
+  const mctx = (await loadOrgContext(manager, org.id))!;
+
+  // 1. Весенняя диагностика → анализ → план → выполнение
+  const early = await createDiagnosticWithResponses(db, org.id, userId, criteria, {
     title: "Диагностика SERVICE 5D — весна",
     startedAt: new Date(now - 110 * day),
     completedAt: new Date(now - 95 * day),
@@ -254,6 +265,16 @@ export async function createDemoOrganization(userId: string) {
     seed: 7,
     locationId: loc1.id,
   });
+  await runDiagnosticAnalysis(ctx, early.id);
+  const plan1 = await generatePlan(ctx, early.id, { maxPriority: "P2" });
+  await assignAll(ctx, plan1.id, manager.id, now - 60 * day);
+  await submitPlanForApproval(ctx, plan1.id);
+  await approvePlan(ctx, plan1.id);
+  const tasks1 = await db.task.findMany({ where: { planId: plan1.id }, include: { checklist: true }, orderBy: [{ priority: "asc" }, { createdAt: "asc" }] });
+  for (const t of tasks1.slice(0, 5)) await completeTask(ctx, mctx, t.id, t.checklist.map((c) => c.id));
+  await db.improvementPlan.update({ where: { id: plan1.id }, data: { createdAt: new Date(now - 93 * day), approvedAt: new Date(now - 92 * day) } });
+
+  // 2. Текущая диагностика = повторный замер → оценка результата задач → новый анализ и план
   const latest = await createDiagnosticWithResponses(db, org.id, userId, criteria, {
     title: "Диагностика SERVICE 5D — текущая",
     startedAt: new Date(now - 20 * day),
@@ -262,9 +283,51 @@ export async function createDemoOrganization(userId: string) {
     seed: 11,
     locationId: loc1.id,
   });
-
-  const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
-  const ctx = (await loadOrgContext({ id: user.id, email: user.email, name: user.name, isPlatformStaff: false }, org.id))!;
+  await evaluateTaskOutcomes(ctx, latest.id);
   await runDiagnosticAnalysis(ctx, latest.id);
+  const plan2 = await generatePlan(ctx, latest.id, { maxPriority: "P2" });
+  await assignAll(ctx, plan2.id, manager.id, now + 25 * day);
+  await submitPlanForApproval(ctx, plan2.id);
+  await approvePlan(ctx, plan2.id);
+  const tasks2 = await db.task.findMany({ where: { planId: plan2.id }, include: { checklist: { orderBy: { sortOrder: "asc" } } }, orderBy: { createdAt: "asc" } });
+  if (tasks2[0]) {
+    await startTask(mctx, tasks2[0].id);
+    if (tasks2[0].checklist[0]) await toggleChecklistItem(mctx, tasks2[0].id, tasks2[0].checklist[0].id, true);
+  }
+  if (tasks2[1]) {
+    await startTask(mctx, tasks2[1].id);
+    for (const c of tasks2[1].checklist) await toggleChecklistItem(mctx, tasks2[1].id, c.id, true);
+    await addEvidence(mctx, tasks2[1].id, { kind: "TEXT", description: "Демо: все пункты чек-листа выполнены, итоги зафиксированы в еженедельном отчёте управляющего." });
+    await submitForReview(mctx, tasks2[1].id);
+  }
+  if (tasks2[2]) {
+    await updateTask(ctx, tasks2[2].id, { dueDate: new Date(now + 1 * day) });
+    await db.task.update({ where: { id: tasks2[2].id }, data: { dueDate: new Date(now - 2 * day) } });
+    await markOverdueTasks(org.id);
+  }
   return org;
+}
+
+async function createDemoMember(orgId: string, name: string, roleKey: "LOCATION_MANAGER", locationIds: string[]) {
+  // Учётная запись-заглушка для демонстрации ролей; входа нет (случайный пароль, служебный домен .invalid).
+  const email = `manager.${orgId}@demo.sreda.invalid`;
+  const user = await prisma.user.create({ data: { name, email, passwordHash: await hashPassword(newToken(32)), notifyEmail: false } });
+  const role = await prisma.role.findFirstOrThrow({ where: { organizationId: orgId, key: roleKey } });
+  await prisma.organizationMembership.create({ data: { organizationId: orgId, userId: user.id, roleId: role.id, locationIds } });
+  return { id: user.id, email: user.email, name: user.name, isPlatformStaff: false };
+}
+
+async function assignAll(ctx: OrgContext, planId: string, assigneeId: string, dueTs: number) {
+  const tasks = await ctx.db.task.findMany({ where: { planId } });
+  for (const [i, t] of tasks.entries()) {
+    await ctx.db.task.update({ where: { id: t.id }, data: { assigneeUserId: assigneeId, dueDate: new Date(dueTs + i * 3 * 86400_000) } });
+  }
+}
+
+async function completeTask(owner: OrgContext, manager: OrgContext, taskId: string, checklistIds: string[]) {
+  await startTask(manager, taskId);
+  for (const c of checklistIds) await toggleChecklistItem(manager, taskId, c, true);
+  await addEvidence(manager, taskId, { kind: "TEXT", description: "Демо: мероприятия выполнены, результаты зафиксированы в отчёте управляющего за месяц." });
+  await submitForReview(manager, taskId);
+  await reviewTask(owner, taskId, "accept", "Демо: принято по отчёту управляющего.");
 }

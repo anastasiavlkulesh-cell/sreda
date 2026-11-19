@@ -26,7 +26,9 @@ describe("Спринт 3: AI-аналитика", () => {
     expect(problem.recommendations[0].metricsUsed.length).toBeGreaterThan(0);
     expect(evidence.length).toBeGreaterThan(0);
 
-    const analysis = await prisma.aIAnalysis.findFirstOrThrow({ where: { organizationId: org.id } });
+    const analysis = await prisma.aIAnalysis.findFirstOrThrow({
+      where: { organizationId: org.id, kind: "DIAGNOSTIC", diagnostic: { title: { contains: "текущая" } } },
+    });
     expect(analysis.status).toBe("COMPLETED");
     expect(analysis.methodologyVersion).toBe("5D-1.0");
     expect(analysis.provider).toBe("rules");
@@ -44,7 +46,7 @@ describe("Спринт 3: AI-аналитика", () => {
     await runDiagnosticAnalysis(ctx, d.id);
     const after = await listProblems(ctx);
     expect(after.length).toBe(before);
-    expect(await prisma.aIAnalysis.count({ where: { organizationId: org.id } })).toBe(2);
+    expect(await prisma.aIAnalysis.count({ where: { organizationId: org.id, kind: "DIAGNOSTIC", diagnosticId: d.id } })).toBe(2);
   });
 
   it("права и изоляция: менеджер не запускает анализ; чужая проблема не открывается", async () => {
