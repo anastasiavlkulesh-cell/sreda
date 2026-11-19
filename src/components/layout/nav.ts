@@ -27,7 +27,7 @@ export const NAV: NavGroup[] = [
     title: "Диагностика",
     items: [
       { href: "/diagnostics", label: "SERVICE 5D", icon: "Radar", anyOf: ["diagnostics.view", "diagnostics.respond"], ready: true },
-      { href: "/problems", label: "Проблемы и причины", icon: "SearchCheck", anyOf: ["problems.view"], ready: false },
+      { href: "/problems", label: "Проблемы и причины", icon: "SearchCheck", anyOf: ["problems.view"], ready: true },
     ],
   },
   {

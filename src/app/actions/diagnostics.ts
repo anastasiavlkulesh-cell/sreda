@@ -70,6 +70,10 @@ export const createInvitesAction = defineAction(
 export const completeCollectionAction = defineAction("completeCollection", idSchema, async ({ id }) => {
   const ctx = await actionContext("diagnostics.manage");
   const { result } = await completeCollection(ctx, id);
+  if (ctx.can("analysis.run")) {
+    const { runDiagnosticAnalysis } = await import("@/server/services/analysis");
+    await runDiagnosticAnalysis(ctx, id);
+  }
   revalidatePath(`/diagnostics/${id}`);
   return {
     ok: true,

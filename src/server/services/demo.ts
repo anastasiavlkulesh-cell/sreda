@@ -6,6 +6,9 @@ import { calculateAndStoreAssessment } from "./assessment";
 import { METHODOLOGY_VERSION, DEFAULT_TARGET_RESPONSES } from "@/domain/methodology/v1";
 import type { SourceType } from "@/domain/types";
 import type { MetricKey } from "@/domain/metrics";
+import { loadOrgContext } from "../context-core";
+import { runDiagnosticAnalysis } from "./analysis";
+import { prisma } from "../db/client";
 
 /**
  * Демо-компания. Все данные синтетические, компания помечена isDemo и в
@@ -251,7 +254,7 @@ export async function createDemoOrganization(userId: string) {
     seed: 7,
     locationId: loc1.id,
   });
-  await createDiagnosticWithResponses(db, org.id, userId, criteria, {
+  const latest = await createDiagnosticWithResponses(db, org.id, userId, criteria, {
     title: "Диагностика SERVICE 5D — текущая",
     startedAt: new Date(now - 20 * day),
     completedAt: new Date(now - 6 * day),
@@ -260,5 +263,8 @@ export async function createDemoOrganization(userId: string) {
     locationId: loc1.id,
   });
 
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
+  const ctx = (await loadOrgContext({ id: user.id, email: user.email, name: user.name, isPlatformStaff: false }, org.id))!;
+  await runDiagnosticAnalysis(ctx, latest.id);
   return org;
 }
