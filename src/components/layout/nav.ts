@@ -26,7 +26,7 @@ export const NAV: NavGroup[] = [
   {
     title: "Диагностика",
     items: [
-      { href: "/diagnostics", label: "SERVICE 5D", icon: "Radar", anyOf: ["diagnostics.view", "diagnostics.respond"], ready: false },
+      { href: "/diagnostics", label: "SERVICE 5D", icon: "Radar", anyOf: ["diagnostics.view", "diagnostics.respond"], ready: true },
       { href: "/problems", label: "Проблемы и причины", icon: "SearchCheck", anyOf: ["problems.view"], ready: false },
     ],
   },
@@ -41,7 +41,7 @@ export const NAV: NavGroup[] = [
     title: "Люди и бизнес",
     items: [
       { href: "/team", label: "Команда", icon: "Users", anyOf: ["team.view"], ready: false },
-      { href: "/metrics", label: "Бизнес-показатели", icon: "TrendingUp", anyOf: ["metrics.view"], ready: false },
+      { href: "/metrics", label: "Бизнес-показатели", icon: "TrendingUp", anyOf: ["metrics.view"], ready: true },
       { href: "/reports", label: "Отчёты", icon: "FileText", anyOf: ["reports.view"], ready: false },
     ],
   },
