@@ -1,0 +1,75 @@
+@import "tailwindcss";
+
+/* =========================================================================
+   Дизайн-система СРЕДА
+   Глубокий синий #0F172A · Лавандовый #7C6CFC · Сиреневый #B89CFF ·
+   Персиковый #FFB997 · Светлый фон #F7F5FA
+   Manrope — заголовки, Inter — основной текст
+   ========================================================================= */
+
+@theme {
+  --font-sans: "Inter Variable", "Inter", system-ui, sans-serif;
+  --font-display: "Manrope Variable", "Manrope", "Inter Variable", system-ui, sans-serif;
+
+  --color-navy-950: #0a1020;
+  --color-navy-900: #0f172a;
+  --color-navy-800: #1b2440;
+  --color-navy-700: #2a3556;
+  --color-navy-600: #475173;
+
+  --color-lavender-50: #f3f1ff;
+  --color-lavender-100: #e8e4ff;
+  --color-lavender-200: #d3ccff;
+  --color-lavender-400: #9d91fd;
+  --color-lavender-500: #7c6cfc;
+  --color-lavender-600: #6655e8;
+  --color-lavender-700: #5241c8;
+
+  --color-lilac-200: #e3d7ff;
+  --color-lilac-400: #b89cff;
+
+  --color-peach-100: #fff1ea;
+  --color-peach-200: #ffdcc9;
+  --color-peach-400: #ffb997;
+  --color-peach-600: #e8895c;
+
+  --color-canvas: #f7f5fa;
+  --color-ink: #0f172a;
+  --color-muted: #5b6478;
+  --color-line: #e7e3ef;
+
+  /* Семантика состояний SERVICE 5D */
+  --color-level-critical: #d9485f;
+  --color-level-low: #f08a4b;
+  --color-level-basic: #e3b341;
+  --color-level-good: #49a87c;
+  --color-level-high: #2f8f6b;
+
+  --radius-card: 1.25rem;
+  --shadow-card: 0 1px 2px rgb(15 23 42 / 0.04), 0 4px 16px rgb(15 23 42 / 0.04);
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    @apply bg-canvas text-ink font-sans;
+    font-feature-settings: "cv11", "ss01";
+  }
+  h1, h2, h3, h4 {
+    @apply font-display tracking-tight;
+  }
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-lavender-500;
+  }
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: white;
+  }
+}

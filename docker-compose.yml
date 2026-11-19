@@ -1,0 +1,64 @@
+# Локальный запуск всей платформы: docker compose up -d --build
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: sreda
+      POSTGRES_PASSWORD: sreda
+      POSTGRES_DB: sreda
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sreda"]
+      interval: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: sreda
+      MINIO_ROOT_PASSWORD: sreda-minio-secret
+    ports: ["9001:9001"]
+    volumes:
+      - s3data:/data
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports: ["8025:8025"]
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://sreda:sreda@db:5432/sreda
+      STORAGE_DRIVER: s3
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: sreda
+      S3_ACCESS_KEY_ID: sreda
+      S3_SECRET_ACCESS_KEY: sreda-minio-secret
+      SMTP_URL: smtp://mailpit:1025
+      APP_URL: http://localhost:3000
+    ports: ["3000:3000"]
+
+  # Ежедневная резервная копия БД (хранится 14 дней в томе backups)
+  backup:
+    image: postgres:16
+    depends_on: [db]
+    environment:
+      PGPASSWORD: sreda
+    volumes:
+      - backups:/backups
+    entrypoint: >
+      sh -c 'while true; do
+        pg_dump -h db -U sreda -Fc sreda > /backups/sreda-$$(date +%F).dump;
+        find /backups -name "*.dump" -mtime +14 -delete;
+        sleep 86400; done'
+
+volumes:
+  pgdata:
+  s3data:
+  backups:

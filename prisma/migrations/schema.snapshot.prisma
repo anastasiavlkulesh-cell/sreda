@@ -1,0 +1,1111 @@
+// =============================================================================
+// СРЕДА — схема базы данных (PostgreSQL, Prisma 7)
+//
+// Правила:
+// 1. Каждая бизнес-таблица имеет organizationId и индекс по нему (tenant).
+// 2. Доступ к tenant-таблицам идёт только через tenantDb(orgId) — см.
+//    src/server/db/tenant.ts. Прямой prisma используется только для
+//    глобальных таблиц (User, Organization, справочники методики).
+// 3. Удаление бизнес-данных — архивирование (archivedAt). Физическое удаление —
+//    только по политике хранения (retention) или запросу на удаление компании.
+// =============================================================================
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Пользователи и компании
+// ---------------------------------------------------------------------------
+
+model User {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  name           String
+  passwordHash   String
+  /// Увеличивается при смене пароля / блокировке — инвалидирует все сессии.
+  sessionVersion Int       @default(1)
+  isPlatformStaff Boolean  @default(false)
+  disabledAt     DateTime?
+  /// Telegram chat id (зашифрован, AES-256-GCM)
+  telegramChatIdEnc String?
+  notifyEmail    Boolean   @default(true)
+  notifyTelegram Boolean   @default(false)
+  lastLoginAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  memberships   OrganizationMembership[]
+  notifications Notification[]
+  employee      Employee[]
+}
+
+enum SubscriptionPlan {
+  PILOT
+  START
+  BUSINESS
+  NETWORK
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  CANCELED
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  industry  String   @default("general")
+  isDemo    Boolean  @default(false)
+  /// Настройки: пороги приоритизации, анонимность, согласия, хранение
+  settings  Json     @default("{}")
+  archivedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships  OrganizationMembership[]
+  invitations  Invitation[]
+  roles        Role[]
+  locations    Location[]
+  departments  Department[]
+  employees    Employee[]
+  subscription Subscription?
+  diagnostics  Diagnostic[]
+  surveys      Survey[]
+  responses    SurveyResponse[]
+  assessments  Assessment[]
+  customCriteria AssessmentCriterion[]
+  evidence     Evidence[]
+  problems     Problem[]
+  problemCauses ProblemCause[]
+  plans        ImprovementPlan[]
+  tasks        Task[]
+  taskComments TaskComment[]
+  taskEvidence TaskEvidence[]
+  trainingCourses TrainingCourse[]
+  trainingProgress TrainingProgress[]
+  standards    Standard[]
+  standardVersions StandardVersion[]
+  checklists   Checklist[]
+  customerFeedback CustomerFeedback[]
+  complaints   Complaint[]
+  metrics      BusinessMetric[]
+  reports      Report[]
+  notifications Notification[]
+  aiAnalyses   AIAnalysis[]
+  aiRecommendations AIRecommendation[]
+  auditLogs    AuditLog[]
+  files        StoredFile[]
+  surveyInvites SurveyInvite[]
+  checklistItems TaskChecklistItem[]
+}
+
+model Subscription {
+  id             String             @id @default(cuid())
+  organizationId String             @unique
+  plan           SubscriptionPlan   @default(PILOT)
+  status         SubscriptionStatus @default(TRIAL)
+  /// Подключённые источники данных по тарифу
+  enabledSources DiagnosticSourceType[]
+  currentPeriodEnd DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+/// Каталог прав (глобальный). Ключи совпадают с src/domain/rbac.ts
+model Permission {
+  key         String @id
+  description String
+  module      String
+}
+
+enum RoleKey {
+  OWNER
+  NETWORK_MANAGER
+  LOCATION_MANAGER
+  MANAGER
+  EMPLOYEE
+  PLATFORM_EXPERT
+}
+
+/// Роль внутри компании. Системные роли создаются при создании компании;
+/// набор прав можно менять на уровне компании (кроме OWNER).
+model Role {
+  id             String   @id @default(cuid())
+  organizationId String
+  key            RoleKey
+  name           String
+  permissions    String[]
+  isSystem       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  memberships  OrganizationMembership[]
+  invitations  Invitation[]
+
+  @@unique([organizationId, key])
+  @@index([organizationId])
+}
+
+model OrganizationMembership {
+  id             String    @id @default(cuid())
+  organizationId String
+  userId         String
+  roleId         String
+  /// Ограничение области видимости точками (пусто = вся компания)
+  locationIds    String[]
+  /// Ограничение модулями для эксперта платформы (пусто = по роли)
+  moduleScope    String[]
+  /// Для эксперта платформы: доступ действует до даты
+  expiresAt      DateTime?
+  grantedById    String?
+  archivedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role         Role         @relation(fields: [roleId], references: [id])
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@index([organizationId])
+}
+
+model Invitation {
+  id             String    @id @default(cuid())
+  organizationId String
+  email          String
+  roleId         String
+  locationIds    String[]
+  tokenHash      String    @unique
+  invitedById    String
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  revokedAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  role         Role         @relation(fields: [roleId], references: [id])
+
+  @@index([organizationId])
+  @@index([email])
+}
+
+model Location {
+  id             String    @id @default(cuid())
+  organizationId String
+  name           String
+  city           String?
+  address        String?
+  archivedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  departments  Department[]
+  employees    Employee[]
+  diagnostics  Diagnostic[]
+  metrics      BusinessMetric[]
+
+  @@index([organizationId])
+}
+
+model Department {
+  id             String    @id @default(cuid())
+  organizationId String
+  locationId     String?
+  name           String
+  archivedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  location     Location?    @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  employees    Employee[]
+
+  @@index([organizationId])
+}
+
+model Employee {
+  id             String    @id @default(cuid())
+  organizationId String
+  userId         String?
+  locationId     String?
+  departmentId   String?
+  fullName       String
+  position       String
+  /// Контакт (зашифрован)
+  contactEnc     String?
+  hiredAt        DateTime?
+  archivedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  location     Location?    @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  department   Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  trainingProgress TrainingProgress[]
+
+  @@index([organizationId])
+  @@index([organizationId, locationId])
+}
+
+// ---------------------------------------------------------------------------
+// Методика SERVICE 5D (глобальные справочники с версионированием)
+// ---------------------------------------------------------------------------
+
+enum DimensionKey {
+  CUSTOMER
+  TEAM
+  LEADERSHIP
+  STANDARDS
+  BUSINESS_RESULTS
+}
+
+model ServiceDimension {
+  id                 String       @id @default(cuid())
+  key                DimensionKey
+  methodologyVersion String
+  name               String
+  description        String
+  /// Вес направления в SSI, %. По методике — 20.
+  weight             Int          @default(20)
+  sortOrder          Int
+
+  criteria AssessmentCriterion[]
+
+  @@unique([key, methodologyVersion])
+}
+
+enum CriterionScope {
+  UNIVERSAL
+  INDUSTRY
+  CUSTOM
+}
+
+/// Критерий оценки. organizationId == null — критерий методики
+/// (универсальный/отраслевой); иначе — индивидуальный критерий компании.
+model AssessmentCriterion {
+  id                 String         @id @default(cuid())
+  organizationId     String?
+  dimensionId        String
+  code               String
+  title              String
+  description        String
+  scope              CriterionScope @default(UNIVERSAL)
+  industry           String?
+  weight             Int            @default(1)
+  /// Атрибуты для приоритизации, 1..5
+  businessImpact     Int            @default(3)
+  urgency            Int            @default(3)
+  feasibility        Int            @default(3)
+  isActive           Boolean        @default(true)
+  createdAt          DateTime       @default(now())
+
+  organization Organization?   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  dimension    ServiceDimension @relation(fields: [dimensionId], references: [id])
+  questions    SurveyQuestion[]
+
+  @@unique([dimensionId, code, organizationId])
+  @@index([organizationId])
+}
+
+// ---------------------------------------------------------------------------
+// Диагностика и сбор данных
+// ---------------------------------------------------------------------------
+
+enum DiagnosticStatus {
+  DRAFT
+  COLLECTING
+  ANALYZING
+  COMPLETED
+  ARCHIVED
+}
+
+enum DiagnosticSourceType {
+  OWNER
+  MANAGER
+  EMPLOYEE
+  CUSTOMER
+  MYSTERY_SHOPPER
+  BUSINESS_METRICS
+}
+
+model Diagnostic {
+  id                 String           @id @default(cuid())
+  organizationId     String
+  locationId         String?
+  title              String
+  status             DiagnosticStatus @default(DRAFT)
+  methodologyVersion String
+  startedAt          DateTime?
+  completedAt        DateTime?
+  createdById        String
+  archivedAt         DateTime?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  location     Location?          @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  sources      DiagnosticSource[]
+  surveys      Survey[]
+  assessments  Assessment[]
+  problems     Problem[]
+  analyses     AIAnalysis[]
+  plans        ImprovementPlan[]
+  evidence     Evidence[]
+
+  @@index([organizationId, status])
+}
+
+model DiagnosticSource {
+  id           String               @id @default(cuid())
+  diagnosticId String
+  type         DiagnosticSourceType
+  isEnabled    Boolean              @default(true)
+  /// Минимальное число ответов для достоверности
+  targetResponses Int               @default(1)
+  createdAt    DateTime             @default(now())
+
+  diagnostic Diagnostic @relation(fields: [diagnosticId], references: [id], onDelete: Cascade)
+
+  @@unique([diagnosticId, type])
+}
+
+enum SurveyKind {
+  DIAGNOSTIC
+  TEAM_PULSE
+}
+
+enum SurveyStatus {
+  DRAFT
+  OPEN
+  CLOSED
+}
+
+model Survey {
+  id             String               @id @default(cuid())
+  organizationId String
+  diagnosticId   String?
+  kind           SurveyKind           @default(DIAGNOSTIC)
+  sourceType     DiagnosticSourceType
+  title          String
+  intro          String?
+  status         SurveyStatus         @default(DRAFT)
+  isAnonymous    Boolean              @default(false)
+  /// Публичная ссылка (sha256 токена). null — анкета только для авторизованных.
+  publicTokenHash String?             @unique
+  /// Тот же токен, зашифрованный (AES-256-GCM) — чтобы владелец мог снова открыть ссылку
+  publicTokenEnc String?
+  /// Для анонимных опросов: подразделение-группа для агрегирования
+  departmentId   String?
+  closesAt       DateTime?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  diagnostic   Diagnostic?      @relation(fields: [diagnosticId], references: [id], onDelete: Cascade)
+  questions    SurveyQuestion[]
+  responses    SurveyResponse[]
+  invites      SurveyInvite[]
+
+  @@index([organizationId, diagnosticId])
+}
+
+enum QuestionType {
+  SCALE
+  TEXT
+}
+
+model SurveyQuestion {
+  id          String       @id @default(cuid())
+  surveyId    String
+  criterionId String?
+  /// Для пульс-опросов: ключ показателя (engagement, satisfaction, ...)
+  metricKey   String?
+  type        QuestionType @default(SCALE)
+  text        String
+  isRequired  Boolean      @default(true)
+  sortOrder   Int
+
+  survey    Survey               @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  criterion AssessmentCriterion? @relation(fields: [criterionId], references: [id])
+  answers   SurveyAnswer[]
+
+  @@index([surveyId])
+}
+
+/// Индивидуальная одноразовая ссылка. Ответ НЕ связывается с приглашением —
+/// фиксируется только факт использования (анонимность).
+model SurveyInvite {
+  id             String    @id @default(cuid())
+  organizationId String
+  surveyId       String
+  tokenHash      String    @unique
+  label          String?
+  usedAt         DateTime?
+  createdAt      DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  survey       Survey       @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+
+  @@index([surveyId])
+}
+
+model SurveyResponse {
+  id             String   @id @default(cuid())
+  organizationId String
+  surveyId       String
+  /// Только для неанонимных анкет (собственник, руководитель, тайный покупатель)
+  respondentUserId String?
+  /// Подпись источника для неанонимных ответов (например, «Тайный покупатель №2»)
+  respondentLabel String?
+  /// Группа для агрегирования анонимных ответов
+  departmentId   String?
+  locationId     String?
+  submittedAt    DateTime @default(now())
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  survey       Survey         @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  answers      SurveyAnswer[]
+
+  @@index([organizationId, surveyId])
+}
+
+model SurveyAnswer {
+  id         String  @id @default(cuid())
+  responseId String
+  questionId String
+  value      Int?
+  text       String?
+
+  response SurveyResponse @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  question SurveyQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([responseId, questionId])
+  @@index([questionId])
+}
+
+enum ConfidenceLevel {
+  HIGH
+  MEDIUM
+  LOW
+  INSUFFICIENT
+}
+
+/// Результат расчёта SERVICE 5D (снимок). Пересчёт создаёт новую запись.
+model Assessment {
+  id                 String          @id @default(cuid())
+  organizationId     String
+  diagnosticId       String
+  methodologyVersion String
+  /// null — данных недостаточно (фиктивные значения не подставляются)
+  ssi                Float?
+  confidence         ConfidenceLevel
+  /// По направлениям: { key, score|null, coverage, confidence, criteria[...] }
+  dimensions         Json
+  limitations        String[]
+  criticalRisks      String[]
+  /// Количество ответов по источникам
+  sourceStats        Json
+  calculatedAt       DateTime        @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  diagnostic   Diagnostic   @relation(fields: [diagnosticId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, calculatedAt])
+  @@index([diagnosticId])
+}
+
+enum EvidenceKind {
+  SURVEY_AGGREGATE
+  TEXT_FEEDBACK
+  CONTRADICTION
+  METRIC
+  FILE
+  NOTE
+}
+
+/// Факт, на который опираются выводы: агрегат ответов, цитата, метрика, файл.
+model Evidence {
+  id             String               @id @default(cuid())
+  organizationId String
+  diagnosticId   String?
+  kind           EvidenceKind
+  sourceType     DiagnosticSourceType?
+  criterionCode  String?
+  summary        String
+  data           Json                 @default("{}")
+  fileId         String?
+  createdAt      DateTime             @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  diagnostic   Diagnostic?  @relation(fields: [diagnosticId], references: [id], onDelete: Cascade)
+  file         StoredFile?  @relation(fields: [fileId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, diagnosticId])
+}
+
+// ---------------------------------------------------------------------------
+// Проблемы, причины, AI
+// ---------------------------------------------------------------------------
+
+enum FindingStatus {
+  CONFIRMED
+  PARTIALLY_CONFIRMED
+  HYPOTHESIS
+}
+
+enum PriorityCategory {
+  P1
+  P2
+  P3
+  P4
+}
+
+enum ProblemStatus {
+  OPEN
+  IN_PLAN
+  MONITORING
+  RESOLVED
+  DISMISSED
+}
+
+model Problem {
+  id             String           @id @default(cuid())
+  organizationId String
+  diagnosticId   String
+  analysisId     String?
+  dimension      DimensionKey
+  criterionCode  String?
+  title          String
+  description    String
+  consequences   String
+  findingStatus  FindingStatus
+  confidence     ConfidenceLevel
+  /// Параметры приоритизации 1..5
+  severity       Int
+  businessImpact Int
+  urgency        Int
+  scale          Int
+  systemic       Int
+  feasibility    Int
+  priorityScore  Float
+  priority       PriorityCategory
+  status         ProblemStatus    @default(OPEN)
+  /// Ссылки на Evidence.id
+  evidenceIds    String[]
+  dataSources    DiagnosticSourceType[]
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  diagnostic   Diagnostic     @relation(fields: [diagnosticId], references: [id], onDelete: Cascade)
+  analysis     AIAnalysis?    @relation(fields: [analysisId], references: [id], onDelete: SetNull)
+  causes       ProblemCause[]
+  tasks        Task[]
+  recommendations AIRecommendation[]
+
+  @@index([organizationId, priority])
+  @@index([diagnosticId])
+}
+
+model ProblemCause {
+  id             String        @id @default(cuid())
+  organizationId String
+  problemId      String
+  title          String
+  explanation    String
+  findingStatus  FindingStatus
+  /// Коды критериев, подтверждающих причину
+  supportingCriteria String[]
+  evidenceIds    String[]
+  createdAt      DateTime      @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  problem      Problem      @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  @@index([problemId])
+  @@index([organizationId])
+}
+
+enum AIAnalysisKind {
+  DIAGNOSTIC
+  TASK_EVIDENCE
+  ASSISTANT
+}
+
+enum AIAnalysisStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+/// Журнал каждого AI-анализа: версия методики, провайдер, входные данные, результат.
+model AIAnalysis {
+  id                 String           @id @default(cuid())
+  organizationId     String
+  diagnosticId       String?
+  kind               AIAnalysisKind
+  status             AIAnalysisStatus @default(RUNNING)
+  methodologyVersion String
+  provider           String
+  model              String?
+  /// Обезличенный контекст, переданный в анализ
+  inputSummary       Json
+  output             Json?
+  limitations        String[]
+  error              String?
+  requestedById      String?
+  createdAt          DateTime         @default(now())
+  completedAt        DateTime?
+
+  organization    Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  diagnostic      Diagnostic?        @relation(fields: [diagnosticId], references: [id], onDelete: Cascade)
+  problems        Problem[]
+  recommendations AIRecommendation[]
+
+  @@index([organizationId, createdAt])
+}
+
+model AIRecommendation {
+  id             String          @id @default(cuid())
+  organizationId String
+  analysisId     String
+  problemId      String?
+  title          String
+  rationale      String
+  findingStatus  FindingStatus
+  confidence     ConfidenceLevel
+  dataSources    String[]
+  metricsUsed    String[]
+  limitations    String[]
+  createdAt      DateTime        @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  analysis     AIAnalysis   @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  problem      Problem?     @relation(fields: [problemId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+}
+
+// ---------------------------------------------------------------------------
+// План улучшений и задачи
+// ---------------------------------------------------------------------------
+
+enum PlanStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  ARCHIVED
+}
+
+model ImprovementPlan {
+  id             String     @id @default(cuid())
+  organizationId String
+  diagnosticId   String?
+  title          String
+  status         PlanStatus @default(DRAFT)
+  generatedByAI  Boolean    @default(false)
+  approvedById   String?
+  approvedAt     DateTime?
+  createdById    String
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  diagnostic   Diagnostic?  @relation(fields: [diagnosticId], references: [id], onDelete: SetNull)
+  tasks        Task[]
+
+  @@index([organizationId, status])
+}
+
+enum TaskStatus {
+  NEW
+  PENDING_APPROVAL
+  PLANNED
+  IN_PROGRESS
+  IN_REVIEW
+  DONE
+  OVERDUE
+  NEEDS_REVISION
+}
+
+/// Оценка результата: закрытие задачи ≠ устранение проблемы.
+enum TaskOutcome {
+  NOT_EVALUATED
+  AWAITING_REMEASURE
+  IMPROVED
+  NO_EFFECT
+}
+
+model Task {
+  id             String           @id @default(cuid())
+  organizationId String
+  planId         String?
+  problemId      String?
+  locationId     String?
+  title          String
+  problemSummary String
+  rootCause      String?
+  solution       String
+  priority       PriorityCategory @default(P3)
+  status         TaskStatus       @default(NEW)
+  assigneeUserId String?
+  coAssigneeIds  String[]
+  dueDate        DateTime?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  outcome        TaskOutcome      @default(NOT_EVALUATED)
+  outcomeNote    String?
+  /// Результат AI-проверки доказательств
+  evidenceReview Json?
+  createdById    String
+  archivedAt     DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  plan         ImprovementPlan?    @relation(fields: [planId], references: [id], onDelete: SetNull)
+  problem      Problem?            @relation(fields: [problemId], references: [id], onDelete: SetNull)
+  comments     TaskComment[]
+  evidence     TaskEvidence[]
+  checklist    TaskChecklistItem[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, assigneeUserId])
+  @@index([planId])
+}
+
+model TaskChecklistItem {
+  id             String   @id @default(cuid())
+  organizationId String
+  taskId         String
+  text           String
+  isDone         Boolean  @default(false)
+  sortOrder      Int
+  doneAt         DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  task         Task         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+}
+
+model TaskComment {
+  id             String   @id @default(cuid())
+  organizationId String
+  taskId         String
+  authorUserId   String
+  body           String
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  task         Task         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+}
+
+enum TaskEvidenceKind {
+  FILE
+  LINK
+  TEXT
+}
+
+model TaskEvidence {
+  id             String           @id @default(cuid())
+  organizationId String
+  taskId         String
+  kind           TaskEvidenceKind
+  description    String
+  url            String?
+  fileId         String?
+  addedByUserId  String
+  createdAt      DateTime         @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  task         Task         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  file         StoredFile?  @relation(fields: [fileId], references: [id], onDelete: SetNull)
+
+  @@index([taskId])
+}
+
+// ---------------------------------------------------------------------------
+// Обучение, стандарты, клиентский опыт (модели готовы, модули — следующие этапы)
+// ---------------------------------------------------------------------------
+
+model TrainingCourse {
+  id             String   @id @default(cuid())
+  organizationId String
+  title          String
+  category       String
+  description    String
+  archivedAt     DateTime?
+  createdAt      DateTime @default(now())
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lessons      TrainingLesson[]
+  progress     TrainingProgress[]
+
+  @@index([organizationId])
+}
+
+model TrainingLesson {
+  id        String @id @default(cuid())
+  courseId  String
+  title     String
+  content   String
+  sortOrder Int
+
+  course TrainingCourse @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@index([courseId])
+}
+
+model TrainingProgress {
+  id             String    @id @default(cuid())
+  organizationId String
+  courseId       String
+  employeeId     String
+  completedLessons Int     @default(0)
+  score          Int?
+  completedAt    DateTime?
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  course       TrainingCourse @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  employee     Employee       @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([courseId, employeeId])
+  @@index([organizationId])
+}
+
+enum StandardStatus {
+  DRAFT
+  ON_APPROVAL
+  APPROVED
+  ARCHIVED
+}
+
+model Standard {
+  id             String         @id @default(cuid())
+  organizationId String
+  title          String
+  category       String
+  status         StandardStatus @default(DRAFT)
+  currentVersionId String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  versions     StandardVersion[]
+  checklists   Checklist[]
+
+  @@index([organizationId])
+}
+
+model StandardVersion {
+  id             String    @id @default(cuid())
+  organizationId String
+  standardId     String
+  version        Int
+  content        String
+  proposedByAI   Boolean   @default(false)
+  approvedById   String?
+  approvedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  standard     Standard     @relation(fields: [standardId], references: [id], onDelete: Cascade)
+
+  @@unique([standardId, version])
+  @@index([organizationId])
+}
+
+model Checklist {
+  id             String   @id @default(cuid())
+  organizationId String
+  standardId     String?
+  title          String
+  items          String[]
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  standard     Standard?    @relation(fields: [standardId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+}
+
+model CustomerFeedback {
+  id             String   @id @default(cuid())
+  organizationId String
+  locationId     String?
+  channel        String
+  rating         Int?
+  text           String?
+  /// Контакт клиента (зашифрован, только при согласии)
+  contactEnc     String?
+  consentGiven   Boolean  @default(false)
+  receivedAt     DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, receivedAt])
+}
+
+model Complaint {
+  id             String    @id @default(cuid())
+  organizationId String
+  locationId     String?
+  subject        String
+  description    String
+  status         String    @default("open")
+  resolvedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+// ---------------------------------------------------------------------------
+// Бизнес-показатели, отчёты, уведомления, файлы, аудит
+// ---------------------------------------------------------------------------
+
+enum MetricKey {
+  REVENUE
+  AVERAGE_CHECK
+  CUSTOMERS
+  REPEAT_SALES
+  CONVERSION
+  LTV
+  CAC
+  MARGIN
+  RETENTION_COST
+  ERROR_COST
+  IMPROVEMENT_ROI
+}
+
+/// Фактические показатели, расчётные оценки и прогнозы хранятся раздельно.
+enum MetricValueKind {
+  FACT
+  ESTIMATE
+  FORECAST
+}
+
+enum MetricSource {
+  MANUAL
+  FILE_IMPORT
+  INTEGRATION
+}
+
+model BusinessMetric {
+  id             String          @id @default(cuid())
+  organizationId String
+  locationId     String?
+  key            MetricKey
+  kind           MetricValueKind @default(FACT)
+  source         MetricSource    @default(MANUAL)
+  periodStart    DateTime
+  periodEnd      DateTime
+  value          Float
+  note           String?
+  createdById    String?
+  createdAt      DateTime        @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  location     Location?    @relation(fields: [locationId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, key, periodStart])
+}
+
+model Report {
+  id             String   @id @default(cuid())
+  organizationId String
+  diagnosticId   String?
+  title          String
+  fileId         String?
+  createdById    String
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  file         StoredFile?  @relation(fields: [fileId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+}
+
+model Notification {
+  id             String    @id @default(cuid())
+  organizationId String
+  userId         String
+  type           String
+  title          String
+  body           String
+  link           String?
+  readAt         DateTime?
+  emailSentAt    DateTime?
+  telegramSentAt DateTime?
+  createdAt      DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@index([organizationId])
+}
+
+model StoredFile {
+  id             String   @id @default(cuid())
+  organizationId String
+  storageKey     String   @unique
+  fileName       String
+  mimeType       String
+  sizeBytes      Int
+  uploadedById   String
+  createdAt      DateTime @default(now())
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  evidence     Evidence[]
+  taskEvidence TaskEvidence[]
+  reports      Report[]
+
+  @@index([organizationId])
+}
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  organizationId String?
+  actorUserId    String?
+  action         String
+  entityType     String
+  entityId       String?
+  meta           Json     @default("{}")
+  ip             String?
+  createdAt      DateTime @default(now())
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@index([entityType, entityId])
+}
+
+/// Ограничение частоты попыток входа (защита от перебора).
+model LoginAttempt {
+  id        String   @id @default(cuid())
+  key       String
+  success   Boolean
+  createdAt DateTime @default(now())
+
+  @@index([key, createdAt])
+}
