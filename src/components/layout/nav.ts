@@ -20,7 +20,7 @@ export const NAV: NavGroup[] = [
     title: "Обзор",
     items: [
       { href: "/dashboard", label: "Главная панель", icon: "LayoutDashboard", anyOf: ["dashboard.view"], ready: true },
-      { href: "/assistant", label: "AI-помощник", icon: "Sparkles", anyOf: ["assistant.use"], ready: false },
+      { href: "/assistant", label: "AI-помощник", icon: "Sparkles", anyOf: ["assistant.use"], ready: true },
     ],
   },
   {

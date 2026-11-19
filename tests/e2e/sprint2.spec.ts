@@ -15,9 +15,8 @@ test("диагностика: создание, запуск, анонимная
   await page.waitForURL(/\/diagnostics\/[^/]+$/);
   await expect(page.getByText("Черновик")).toBeVisible();
   await page.click("text=Запустить сбор данных");
-  await expect(page.getByText("Сбор данных").first()).toBeVisible();
-
   const row = page.locator("tr", { hasText: "Сотрудники" });
+  await expect(row.locator("input[readonly]").first()).toBeVisible();
   const link = await row.locator("input[readonly]").first().inputValue();
   expect(link).toMatch(/\/s\//);
 
@@ -33,7 +32,7 @@ test("диагностика: создание, запуск, анонимная
   }
   await p.click("text=Отправить ответы");
   await p.waitForURL(/thanks/);
-  await expect(p.getByText("Спасибо, ответы сохранены")).toBeVisible();
+  await expect(p.getByRole("heading", { name: "Спасибо, ответы сохранены" })).toBeVisible();
   // Повторно с того же устройства отправить нельзя
   await p.goto(link);
   for (let i = 0; i < count; i++) {

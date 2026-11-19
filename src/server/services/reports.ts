@@ -173,7 +173,7 @@ export function renderPdf(orgName: string, isDemo: boolean, d: Data): Promise<Bu
       p(`Задач в планах: ${d.tasks.length}. Выполнено: ${done.length}. Просрочено: ${d.tasks.filter((t) => t.status === "OVERDUE").length}.`);
       p(`Повторный замер: улучшение подтверждено — ${improved}, эффект не подтверждён — ${noEffect}, ожидают замера — ${done.length - improved - noEffect}.`);
       p("Закрытие задачи не считается устранением проблемы: эффект подтверждается только повторной диагностикой.", { color: MUTED, size: 8 });
-      for (const t of done.filter((x) => x.outcomeNote)) p(`• ${t.title} — ${TASK_OUTCOME_LABELS[t.outcome].toLowerCase()} (${t.outcomeNote})`, { size: 9 });
+      for (const t of done.filter((x) => x.outcomeNote)) p(`• ${t.title.replace(/\.$/, "")} — ${TASK_OUTCOME_LABELS[t.outcome].toLowerCase()} (${t.outcomeNote})`, { size: 9 });
       void TASK_STATUS_LABELS;
     }
 

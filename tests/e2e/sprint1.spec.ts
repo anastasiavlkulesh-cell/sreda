@@ -58,12 +58,20 @@ test("приглашённый сотрудник получает только 
   await ctx2.close();
 });
 
-test("неверный пароль не пускает в систему", async ({ page }) => {
+test("неверный пароль не пускает в систему, после 5 попыток вход блокируется", async ({ page }) => {
+  const email = `nobody${uniq()}@e2e.local`;
+  for (let i = 0; i < 5; i++) {
+    await page.goto("/login");
+    await page.fill("#email", email);
+    await page.fill("#password", "wrong-password1");
+    await page.click("button[type=submit]");
+    await expect(page.getByText("Неверный e-mail или пароль")).toBeVisible();
+  }
   await page.goto("/login");
-  await page.fill("#email", "nobody@e2e.local");
+  await page.fill("#email", email);
   await page.fill("#password", "wrong-password1");
   await page.click("button[type=submit]");
-  await expect(page.getByText("Неверный e-mail или пароль")).toBeVisible();
+  await expect(page.getByText("Слишком много неудачных попыток")).toBeVisible();
 });
 
 test("неавторизованный пользователь перенаправляется на вход", async ({ page }) => {

@@ -18,7 +18,7 @@ export default defineConfig({
     launchOptions: process.env.PW_CHROME_PATH ? { executablePath: process.env.PW_CHROME_PATH } : {},
   },
   projects: [
-    { name: "desktop", use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } } },
+    { name: "desktop", use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } }, testIgnore: /responsive/ },
     { name: "mobile", use: { ...devices["Pixel 7"] }, testMatch: /responsive/ },
   ],
 });
