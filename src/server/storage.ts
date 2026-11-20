@@ -53,7 +53,16 @@ class S3Driver implements Driver {
   });
   private bucket = process.env.S3_BUCKET ?? "sreda";
   async put(key: string, body: Buffer, mime: string) {
-    await this.client.send(new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: body, ContentType: mime, ServerSideEncryption: "AES256" }));
+    await this.client.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Body: body,
+        ContentType: mime,
+        // Шифрование на стороне хранилища — если провайдер его поддерживает (S3_SSE=AES256)
+        ...(process.env.S3_SSE ? { ServerSideEncryption: process.env.S3_SSE as "AES256" } : {}),
+      }),
+    );
   }
   async get(key: string) {
     const res = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));

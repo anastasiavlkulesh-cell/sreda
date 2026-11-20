@@ -77,7 +77,8 @@ npm run db:offline:generate        # сгенерировать клиент б�
 - [Методика SERVICE 5D в коде](docs/METHODOLOGY.md): формулы, правила выводов, пороги.
 - [Безопасность и персональные данные](docs/SECURITY.md).
 - [Приёмка MVP](docs/ACCEPTANCE.md): 18 критериев и их проверка.
-- [Запуск на REG.RU](docs/DEPLOY_REGRU.md): сервер, домен, установка одной командой.
+- [Запуск на Timeweb Cloud App Platform](docs/DEPLOY_TIMEWEB.md): без своего сервера, по кнопкам.
+- [Запуск на REG.RU](docs/DEPLOY_REGRU.md): свой сервер, установка одной командой.
 
 ## Что реализовано, а что — следующие этапы
 
