@@ -1,0 +1,69 @@
+# Продакшен-конфигурация для одного сервера (REG.RU VPS и аналоги).
+# Запуск: deploy/install.sh (или docker compose -f deploy/docker-compose.prod.yml --env-file .env up -d --build)
+name: sreda
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sreda
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD в .env}
+      POSTGRES_DB: sreda
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sreda"]
+      interval: 5s
+      retries: 20
+
+  app:
+    build:
+      context: ..
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: ../.env
+    environment:
+      DATABASE_URL: postgresql://sreda:${POSTGRES_PASSWORD}@db:5432/sreda
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
+      STORAGE_LOCAL_DIR: /app/storage
+    volumes:
+      - files:/app/storage
+    expose: ["3000"]
+
+  # Автоматический HTTPS (Let's Encrypt) и проксирование на приложение
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on: [app]
+    ports: ["80:80", "443:443"]
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  # Ежедневная резервная копия БД, хранение 14 дней (том backups)
+  backup:
+    image: postgres:16
+    restart: unless-stopped
+    depends_on: [db]
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - backups:/backups
+    entrypoint: >
+      sh -c 'while true; do
+        pg_dump -h db -U sreda -Fc sreda > /backups/sreda-$$(date +%F).dump;
+        find /backups -name "*.dump" -mtime +14 -delete;
+        sleep 86400; done'
+
+volumes:
+  pgdata:
+  files:
+  caddy_data:
+  caddy_config:
+  backups:

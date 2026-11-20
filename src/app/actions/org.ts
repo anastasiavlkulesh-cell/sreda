@@ -1,4 +1,5 @@
 "use server";
+import { cookieOptions } from "@/server/cookies";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
@@ -15,7 +16,7 @@ import { createOrgSchema, inviteSchema, locationSchema, roleKeySchema, toArray, 
 import { validatePrioritySettings } from "@/domain/priority";
 
 async function setOrgCookie(orgId: string) {
-  (await cookies()).set(ORG_COOKIE, orgId, { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/" });
+  (await cookies()).set(ORG_COOKIE, orgId, cookieOptions());
 }
 
 export const createOrgAction = defineAction("createOrg", createOrgSchema, async (input) => {

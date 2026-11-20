@@ -1,4 +1,5 @@
 "use server";
+import { cookieOptions } from "@/server/cookies";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { AuthError } from "next-auth";
@@ -39,7 +40,7 @@ export const registerAction = defineAction("register", registerSchema, async (in
       if (!(e instanceof AppError)) throw e;
     }
   }
-  if (joinedOrg) (await cookies()).set(ORG_COOKIE, joinedOrg, { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/" });
+  if (joinedOrg) (await cookies()).set(ORG_COOKIE, joinedOrg, cookieOptions());
   await signIn("credentials", { email: input.email, password: input.password, redirectTo: joinedOrg ? "/" : "/onboarding" });
 });
 
@@ -52,7 +53,7 @@ export const switchOrgAction = defineAction("switchOrg", z.object({ orgId: z.str
   if (!user) redirect("/login");
   const m = await prisma.organizationMembership.findFirst({ where: { userId: user.id, organizationId: orgId, archivedAt: null } });
   if (!m) return { ok: false, error: "Нет доступа к этой компании" };
-  (await cookies()).set(ORG_COOKIE, orgId, { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/" });
+  (await cookies()).set(ORG_COOKIE, orgId, cookieOptions());
   redirect("/");
 });
 
@@ -60,6 +61,6 @@ export const acceptInviteAction = defineAction("acceptInvite", z.object({ token:
   const user = await getSessionUser();
   if (!user) redirect(`/register?invite=${encodeURIComponent(token)}`);
   const orgId = await acceptInvitation(user, token);
-  (await cookies()).set(ORG_COOKIE, orgId, { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/" });
+  (await cookies()).set(ORG_COOKIE, orgId, cookieOptions());
   redirect("/");
 });
